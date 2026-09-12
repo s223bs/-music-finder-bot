@@ -1,6 +1,8 @@
 import os
+import threading
 import requests
 
+from flask import Flask
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -11,6 +13,17 @@ from telegram.ext import (
 )
 
 TOKEN = os.getenv("BOT_TOKEN")
+
+# Render uchun web server
+web = Flask(__name__)
+
+@web.route("/")
+def home():
+    return "🎵 Music Bot ishlayapti!"
+
+def run_web():
+    port = int(os.environ.get("PORT", 10000))
+    web.run(host="0.0.0.0", port=port)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -44,7 +57,6 @@ async def search_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         response.raise_for_status()
-
         data = response.json()
         results = data.get("results", [])
 
@@ -54,46 +66,41 @@ async def search_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        sent = False
-
         for song in results:
             name = song.get("trackName", "Noma'lum")
             artist = song.get("artistName", "Noma'lum")
             preview = song.get("previewUrl")
 
-            if not preview:
-                continue
-
-            try:
+            if preview:
                 await update.message.reply_audio(
                     audio=preview,
                     title=name[:64],
                     performer=artist[:64],
                     caption=f"🎵 {name}\n🎤 {artist}\n\n30 soniyalik preview"
                 )
-
-                sent = True
-                break
-
-            except Exception as e:
-                print("Audio error:", e)
-
-        if not sent:
-            await update.message.reply_text(
-                "❌ Bu qo‘shiq uchun audio preview mavjud emas."
-            )
-
-    except Exception as e:
-        print("Search error:", e)
+                return
 
         await update.message.reply_text(
-            "⚠️ Qidirishda xatolik yuz berdi."
+            "❌ Bu qo‘shiq uchun audio preview mavjud emas."
+        )
+
+    except Exception as e:
+        print("Xatolik:", e)
+
+        await update.message.reply_text(
+            "⚠️ Xatolik yuz berdi."
         )
 
 
 def main():
     if not TOKEN:
         raise ValueError("BOT_TOKEN topilmadi!")
+
+    # Web serverni alohida ishga tushirish
+    threading.Thread(
+        target=run_web,
+        daemon=True
+    ).start()
 
     app = Application.builder().token(TOKEN).build()
 
@@ -106,7 +113,7 @@ def main():
         )
     )
 
-    print("🎵 Bot ishga tushdi...")
+    print("🎵 Telegram bot ishga tushdi!")
 
     app.run_polling()
 
