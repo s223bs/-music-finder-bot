@@ -1,84 +1,115 @@
 import os
 import requests
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
-    CallbackQueryHandler,
     ContextTypes,
     filters
 )
 
 TOKEN = os.getenv("BOT_TOKEN")
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🎵 Salom!\n\n"
-        "Qo‘shiqchi nomini yozing.\n"
-        "Masalan: The Weeknd"
+        "Qo‘shiq yoki ijrochi nomini yozing.\n\n"
+        "Masalan:\n"
+        "The Weeknd\n"
+        "Blinding Lights"
     )
 
-async def search_artist(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    artist = update.message.text.strip()
+
+async def search_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.message.text.strip()
 
     await update.message.reply_text("🔎 Qidiryapman...")
 
     url = "https://itunes.apple.com/search"
+
     params = {
-        "term": artist,
+        "term": query,
         "entity": "song",
-        "limit": 10
+        "limit": 5
     }
 
     try:
-        response = requests.get(url, params=params, timeout=10)
-        data = response.json()
+        response = requests.get(
+            url,
+            params=params,
+            timeout=15
+        )
 
+        response.raise_for_status()
+
+        data = response.json()
         results = data.get("results", [])
 
         if not results:
             await update.message.reply_text(
-                "❌ Bu qo‘shiqchini topa olmadim."
+                "❌ Qo‘shiq topilmadi."
             )
             return
 
-        buttons = []
+        sent = False
 
         for song in results:
             name = song.get("trackName", "Noma'lum")
-            artist_name = song.get("artistName", "Noma'lum")
-            link = song.get("trackViewUrl")
+            artist = song.get("artistName", "Noma'lum")
+            preview = song.get("previewUrl")
 
-            if link:
-                buttons.append([
-                    InlineKeyboardButton(
-                        f"🎵 {name} — {artist_name}",
-                        url=link
-                    )
-                ])
+            if not preview:
+                continue
+
+            try:
+                await update.message.reply_audio(
+                    audio=preview,
+                    title=name[:64],
+                    performer=artist[:64],
+                    caption=f"🎵 {name}\n🎤 {artist}\n\n30 soniyalik preview"
+                )
+
+                sent = True
+                break
+
+            except Exception as e:
+                print("Audio error:", e)
+
+        if not sent:
+            await update.message.reply_text(
+                "❌ Bu qo‘shiq uchun audio preview mavjud emas."
+            )
+
+    except Exception as e:
+        print("Search error:", e)
 
         await update.message.reply_text(
-            f"🎤 {artist} uchun top qo‘shiqlar:\n\n"
-            "Quyidagilardan birini tanlang 👇",
-            reply_markup=InlineKeyboardMarkup(buttons)
+            "⚠️ Qidirishda xatolik yuz berdi."
         )
 
-    except Exception:
-        await update.message.reply_text(
-            "⚠️ Xatolik yuz berdi. Keyinroq urinib ko‘ring."
-        )
 
 def main():
+    if not TOKEN:
+        raise ValueError("BOT_TOKEN topilmadi!")
+
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+
     app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, search_artist)
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            search_music
+        )
     )
 
-    print("Bot ishga tushdi...")
+    print("🎵 Bot ishga tushdi...")
+
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
