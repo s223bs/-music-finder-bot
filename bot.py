@@ -1,17 +1,29 @@
 import os
+import threading
 import requests
 
+from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
-    CallbackQueryHandler,
     ContextTypes,
     filters
 )
 
 TOKEN = os.getenv("BOT_TOKEN")
+
+# Render uchun web server
+web = Flask(__name__)
+
+@web.route("/")
+def home():
+    return "🎵 Music Bot is running!"
+
+def run_web():
+    port = int(os.environ.get("PORT", 10000))
+    web.run(host="0.0.0.0", port=port)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -35,24 +47,19 @@ async def search_artist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔎 «{artist}» musiqalari qidirilmoqda..."
     )
 
-    url = "https://itunes.apple.com/search"
-
-    params = {
-        "term": artist,
-        "entity": "song",
-        "limit": 50
-    }
-
     try:
         response = requests.get(
-            url,
-            params=params,
+            "https://itunes.apple.com/search",
+            params={
+                "term": artist,
+                "entity": "song",
+                "limit": 50
+            },
             timeout=15
         )
 
         response.raise_for_status()
         data = response.json()
-
         results = data.get("results", [])
 
         if not results:
@@ -61,75 +68,54 @@ async def search_artist(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Faqat kerakli ma'lumotlarni saqlaymiz
-        songs = []
+        buttons = []
 
-        for song in results:
+        for song in results[:20]:
             name = song.get("trackName")
-            artist_name = song.get("artistName")
-            album = song.get("collectionName")
             link = song.get("trackViewUrl")
-            preview = song.get("previewUrl")
 
             if name and link:
-                songs.append({
-                    "name": name,
-                    "artist": artist_name,
-                    "album": album,
-                    "link": link,
-                    "preview": preview
-                })
+                buttons.append([
+                    InlineKeyboardButton(
+                        f"🎵 {name}",
+                        url=link
+                    )
+                ])
 
-        if not songs:
+        if not buttons:
             await update.message.reply_text(
                 "❌ Qo‘shiqlar topilmadi."
             )
             return
 
-        # Telegram xabari juda uzun bo'lib ketmasligi uchun
-        # birinchi 20 ta qo'shiqni chiqaramiz.
-        buttons = []
-
-        for song in songs[:20]:
-
-            buttons.append([
-                InlineKeyboardButton(
-                    f"🎵 {song['name']}",
-                    url=song["link"]
-                )
-            ])
-
         await update.message.reply_text(
             f"🎤 {artist}\n\n"
-            f"🎶 {len(songs)} ta qo‘shiq topildi.\n\n"
+            f"🎶 {len(results)} ta qo‘shiq topildi.\n\n"
             "Qo‘shiqni tanlang 👇",
             reply_markup=InlineKeyboardMarkup(buttons)
         )
 
-    except requests.exceptions.RequestException:
-        await update.message.reply_text(
-            "⚠️ Internet yoki musiqa bazasida xatolik."
-        )
-
     except Exception as e:
         print("XATO:", e)
-
         await update.message.reply_text(
-            "⚠️ Xatolik yuz berdi. Keyinroq urinib ko‘ring."
+            "⚠️ Xatolik yuz berdi."
         )
 
 
 def main():
-
     if not TOKEN:
         print("❌ BOT_TOKEN topilmadi!")
         return
 
+    # Web serverni alohida ishga tushiramiz
+    threading.Thread(
+        target=run_web,
+        daemon=True
+    ).start()
+
     app = Application.builder().token(TOKEN).build()
 
-    app.add_handler(
-        CommandHandler("start", start)
-    )
+    app.add_handler(CommandHandler("start", start))
 
     app.add_handler(
         MessageHandler(
